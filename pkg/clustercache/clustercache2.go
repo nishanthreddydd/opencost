@@ -1,6 +1,7 @@
 package clustercache
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/opencost/opencost/pkg/env"
@@ -88,7 +89,16 @@ func (kcc *KubernetesClusterCacheV2) GetAllNamespaces() []*Namespace {
 }
 
 func (kcc *KubernetesClusterCacheV2) GetAllNodes() []*Node {
-	return kcc.nodeStore.GetAll()
+	allNodes := kcc.nodeStore.GetAll()
+
+	var awsNodes []*Node
+	for _, node := range allNodes {
+		if strings.HasPrefix(node.SpecProviderID, "aws") {
+			awsNodes = append(awsNodes, node)
+		}
+	}
+
+	return awsNodes
 }
 
 func (kcc *KubernetesClusterCacheV2) GetAllPods() []*Pod {

@@ -2039,9 +2039,12 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 		aws.RIPricingError = err
 		return err
 	}
+	aws.SavingsPlanDataLock.Lock()
 	if aws.SavingsPlanDataByInstanceID == nil {
 		aws.SavingsPlanDataByInstanceID = make(map[string]*SavingsPlanData)
 	}
+	aws.SavingsPlanDataLock.Unlock()
+
 	tNow := time.Now()
 	tOneDayAgo := tNow.Add(time.Duration(-25) * time.Hour) // Also get files from one day ago to avoid boundary conditions
 	start := tOneDayAgo.Format("2006-01-02")
@@ -2059,6 +2062,7 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 	line_item_usage_start_date DESC`
 
 	page := 0
+	mostRecentDate := ""
 	processResults := func(op *athena.GetQueryResultsOutput) bool {
 		if op == nil {
 			log.Errorf("GetSavingsPlanDataFromAthena: Athena page is nil")
@@ -2068,8 +2072,12 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 			return false
 		}
 		aws.SavingsPlanDataLock.Lock()
-		aws.SavingsPlanDataByInstanceID = make(map[string]*SavingsPlanData) // Clean out the old data and only report a savingsplan price if its in the most recent run.
-		mostRecentDate := ""
+		defer aws.SavingsPlanDataLock.Unlock()
+
+		// Reset the cache at the beginning of the first page
+		if page == 0 {
+			aws.SavingsPlanDataByInstanceID = make(map[string]*SavingsPlanData)
+		}
 		iter := op.ResultSet.Rows
 		if page == 0 && len(iter) > 0 {
 			iter = op.ResultSet.Rows[1:len(op.ResultSet.Rows)]
@@ -2098,7 +2106,6 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 		for k, r := range aws.SavingsPlanDataByInstanceID {
 			log.DedupedInfof(5, "Savings Plan Instance Data found for node %s : %f at time %s", k, r.EffectiveCost, r.MostRecentDate)
 		}
-		aws.SavingsPlanDataLock.Unlock()
 		return true
 	}
 
