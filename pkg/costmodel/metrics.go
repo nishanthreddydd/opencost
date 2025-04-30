@@ -128,6 +128,9 @@ var (
 	ramAllocGv                 *prometheus.GaugeVec
 	cpuAllocGv                 *prometheus.GaugeVec
 	gpuAllocGv                 *prometheus.GaugeVec
+	ramIdleGv                  *prometheus.GaugeVec
+	cpuIdleGv                  *prometheus.GaugeVec
+	gpuIdleGv                  *prometheus.GaugeVec
 	pvAllocGv                  *prometheus.GaugeVec
 	networkZoneEgressCostG     prometheus.Gauge
 	networkRegionEgressCostG   prometheus.Gauge
@@ -225,6 +228,22 @@ func initCostModelMetrics(clusterCache clustercache.ClusterCache, provider model
 			toRegisterGV = append(toRegisterGV, gpuAllocGv)
 		}
 
+		ramIdleGv = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "container_memory_idle_bytes",
+			Help: "container_memory_idle_bytes Bytes of Idle used",
+		}, []string{"namespace", "pod", "container", "instance", "node"})
+		if _, disabled := disabledMetrics["container_memory_idle_bytes"]; !disabled {
+			toRegisterGV = append(toRegisterGV, ramIdleGv)
+		}
+
+		cpuIdleGv = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "container_cpu_idle",
+			Help: "container_cpu_idle Percent of a single CPU idle in a minute",
+		}, []string{"namespace", "pod", "container", "instance", "node"})
+		if _, disabled := disabledMetrics["container_cpu_idle"]; !disabled {
+			toRegisterGV = append(toRegisterGV, cpuIdleGv)
+		}
+
 		pvAllocGv = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pod_pvc_allocation",
 			Help: "pod_pvc_allocation Bytes used by a PVC attached to a pod",
@@ -313,6 +332,8 @@ type CostModelMetricsEmitter struct {
 	RAMAllocationRecorder         *prometheus.GaugeVec
 	CPUAllocationRecorder         *prometheus.GaugeVec
 	GPUAllocationRecorder         *prometheus.GaugeVec
+	RAMIdleRecorder               *prometheus.GaugeVec
+	CPUIdleRecorder               *prometheus.GaugeVec
 	ClusterManagementCostRecorder *prometheus.GaugeVec
 	LBCostRecorder                *prometheus.GaugeVec
 	NetworkZoneEgressRecorder     prometheus.Gauge
@@ -365,6 +386,8 @@ func NewCostModelMetricsEmitter(promClient promclient.Client, clusterCache clust
 		RAMAllocationRecorder:         ramAllocGv,
 		CPUAllocationRecorder:         cpuAllocGv,
 		GPUAllocationRecorder:         gpuAllocGv,
+		RAMIdleRecorder:               ramIdleGv,
+		CPUIdleRecorder:               cpuIdleGv,
 		PVAllocationRecorder:          pvAllocGv,
 		NetworkZoneEgressRecorder:     networkZoneEgressCostG,
 		NetworkRegionEgressRecorder:   networkRegionEgressCostG,
@@ -613,9 +636,11 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 
 				if len(costs.RAMAllocation) > 0 {
 					cmme.RAMAllocationRecorder.WithLabelValues(namespace, podName, containerName, nodeName, nodeName).Set(costs.RAMAllocation[0].Value)
+					cmme.RAMIdleRecorder.WithLabelValues(namespace, podName, containerName, nodeName, nodeName).Set(costs.RAMAllocation[0].Value - costs.RAMUsed[0].Value)
 				}
 				if len(costs.CPUAllocation) > 0 {
 					cmme.CPUAllocationRecorder.WithLabelValues(namespace, podName, containerName, nodeName, nodeName).Set(costs.CPUAllocation[0].Value)
+					cmme.CPUIdleRecorder.WithLabelValues(namespace, podName, containerName, nodeName, nodeName).Set(costs.CPUAllocation[0].Value - costs.CPUUsed[0].Value)
 				}
 				if len(costs.GPUReq) > 0 {
 					// allocation here is set to the request because shared GPU usage not yet supported.
@@ -638,6 +663,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 
 					cmme.GPUAllocationRecorder.WithLabelValues(namespace, podName, containerName, nodeName, nodeName).Set(gpualloc)
 				}
+
 				labelKey := getKeyFromLabelStrings(namespace, podName, containerName, nodeName, nodeName)
 				if podStatus[podName] == v1.PodRunning { // Only report data for current pods
 					containerSeen[labelKey] = true

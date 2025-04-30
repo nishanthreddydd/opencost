@@ -2055,11 +2055,26 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 		line_item_usage_start_date,
 		savings_plan_savings_plan_a_r_n,
 		line_item_resource_id,
-		savings_plan_savings_plan_rate
-	FROM %s as cost_data
-	WHERE line_item_usage_start_date BETWEEN date '%s' AND date '%s'
-	AND line_item_line_item_type = 'SavingsPlanCoveredUsage' ORDER BY
-	line_item_usage_start_date DESC`
+		SUM(
+			CASE
+				WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_net_savings_plan_effective_cost
+				WHEN line_item_line_item_type = 'SavingsPlanRecurringFee' THEN savings_plan_total_commitment_to_date - savings_plan_used_commitment
+				ELSE line_item_blended_cost
+			END
+		) AS sum_net_amortized_cost
+	FROM
+		cur_doordash AS cost_data
+	WHERE
+		line_item_usage_start_date BETWEEN DATE '%s' AND DATE '%s'
+		AND line_item_product_code = 'AmazonEC2'
+		AND line_item_line_item_type IN ('SavingsPlanCoveredUsage', 'Usage', 'SavingsPlanRecurringFee')
+	GROUP BY
+		line_item_usage_start_date,
+		savings_plan_savings_plan_a_r_n,
+		line_item_resource_id
+	ORDER BY
+		line_item_usage_start_date DESC;
+	`
 
 	page := 0
 	mostRecentDate := ""
@@ -2168,6 +2183,7 @@ func (aws *AWS) GetReservationDataFromAthena() error {
 	line_item_usage_start_date DESC`
 
 	page := 0
+	mostRecentDate := ""
 	processResults := func(op *athena.GetQueryResultsOutput) bool {
 		if op == nil {
 			log.Errorf("GetReservationDataFromAthena: Athena page is nil")
@@ -2177,8 +2193,11 @@ func (aws *AWS) GetReservationDataFromAthena() error {
 			return false
 		}
 		aws.RIDataLock.Lock()
-		aws.RIPricingByInstanceID = make(map[string]*RIData) // Clean out the old data and only report a RI price if its in the most recent run.
-		mostRecentDate := ""
+		defer aws.RIDataLock.Unlock()
+		if page == 0 {
+			aws.RIPricingByInstanceID = make(map[string]*RIData) // Clean out the old data and only report a RI price if its in the most recent run.
+		}
+
 		iter := op.ResultSet.Rows
 		if page == 0 && len(iter) > 0 {
 			iter = op.ResultSet.Rows[1:len(op.ResultSet.Rows)]
@@ -2207,7 +2226,6 @@ func (aws *AWS) GetReservationDataFromAthena() error {
 		for k, r := range aws.RIPricingByInstanceID {
 			log.DedupedInfof(5, "Reserved Instance Data found for node %s : %f at time %s", k, r.EffectiveCost, r.MostRecentDate)
 		}
-		aws.RIDataLock.Unlock()
 		return true
 	}
 
