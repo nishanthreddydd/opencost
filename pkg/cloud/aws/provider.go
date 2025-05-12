@@ -2059,14 +2059,15 @@ func (aws *AWS) GetSavingsPlanDataFromAthena() error {
 			CASE
 				WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_net_savings_plan_effective_cost
 				WHEN line_item_line_item_type = 'SavingsPlanRecurringFee' THEN savings_plan_total_commitment_to_date - savings_plan_used_commitment
-				ELSE line_item_blended_cost
+				ELSE line_item_net_unblended_cost
 			END
 		) AS sum_net_amortized_cost
 	FROM
-		cur_doordash AS cost_data
+		%s AS cost_data
 	WHERE
 		line_item_usage_start_date BETWEEN DATE '%s' AND DATE '%s'
 		AND line_item_product_code = 'AmazonEC2'
+		AND product_product_family = 'Compute Instance'
 		AND line_item_line_item_type IN ('SavingsPlanCoveredUsage', 'Usage', 'SavingsPlanRecurringFee')
 	GROUP BY
 		line_item_usage_start_date,

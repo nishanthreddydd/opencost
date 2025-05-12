@@ -423,6 +423,11 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 		return false
 	}
 
+	scrapeInterval := env.GetKubecostScrapeInterval()
+	if scrapeInterval == 0 {
+		scrapeInterval = time.Minute
+	}
+
 	go func() {
 		defer errors.HandlePanic()
 
@@ -825,7 +830,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 			}
 
 			select {
-			case <-time.After(time.Minute):
+			case <-time.After(scrapeInterval):
 			case <-cmme.runState.OnStop():
 				cmme.runState.Reset()
 				return

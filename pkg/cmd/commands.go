@@ -48,11 +48,17 @@ func Execute(costModelCmd *cobra.Command, cmds ...*cobra.Command) error {
 	// in the event that no directive/command is passed, we want to default to using the cost-model command
 	// cobra doesn't provide a way within the API to do this, so we'll prepend the command if it is omitted.
 	if len(os.Args) > 1 {
-		// try to find the sub-command from the arguments, if there's an error or the command _is_ the
-		// root command, prepend the default command
-		pCmd, _, err := rootCmd.Find(os.Args[1:])
-		if err != nil || pCmd.Use == rootCmd.Use {
-			rootCmd.SetArgs(append([]string{CommandCostModel}, os.Args[1:]...))
+		// Check if first argument is --agent flag
+		if os.Args[1] == "--agent" {
+			// Replace --agent with agent command
+			rootCmd.SetArgs(append([]string{CommandAgent}, os.Args[2:]...))
+		} else {
+			// try to find the sub-command from the arguments, if there's an error or the command _is_ the
+			// root command, prepend the default command
+			pCmd, _, err := rootCmd.Find(os.Args[1:])
+			if err != nil || pCmd.Use == rootCmd.Use {
+				rootCmd.SetArgs(append([]string{CommandCostModel}, os.Args[1:]...))
+			}
 		}
 	} else {
 		rootCmd.SetArgs([]string{CommandCostModel})
